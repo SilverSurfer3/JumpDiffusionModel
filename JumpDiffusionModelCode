@@ -1,0 +1,101 @@
+import yfinance as yf
+import numpy as np
+import matplotlib.pyplot as plt
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+import nltk
+nltk.download('vader_lexicon')
+
+def jump_diffusion_model(S0, mu, sigma, lambda_, jump_mean, jump_std, T, dt, num_simulations, sentiment_scores, external_risk_factor):
+    num_steps = int(T / dt)
+    t = np.linspace(0, T, num_steps + 1)
+    S = np.zeros((num_simulations, num_steps + 1))
+    S[:, 0] = S0
+
+    for i in range(1, num_steps + 1):
+        dW = np.sqrt(dt) * np.random.randn(num_simulations)
+        dN = np.random.poisson(lambda_ * dt, num_simulations)
+        J = np.random.normal(jump_mean, jump_std, num_simulations) * dN
+
+        # Incorporate sentiment analysis scores as a risk factor
+        mu_adj = mu + sentiment_scores[i - 1] * sentiment_weight
+
+        # Incorporate external risk factors
+        mu_adj += external_risk_factor[:, i - 1] * external_risk_factor_weight
+
+        S[:, i] = S[:, i - 1] * np.exp((mu_adj - 0.5 * sigma**2) * dt + sigma * dW + J)
+
+        # Event-driven jumps (for demonstration purposes, replace with actual event dates)
+        event_dates = [5, 15, 25]  # Example dates for events
+        if i in event_dates:
+            jump_index = np.where(t >= i)[0][0]
+            S[:, jump_index:] = S[:, jump_index:] * (1 + event_jump_factor)
+
+    return t, S
+
+# Fetch historical stock data for MRNA
+stock_symbol = "MRNA"
+start_date = "2020-11-09"
+end_date = "2023-11-09"
+stock_data = yf.download(stock_symbol, start=start_date, end=end_date)
+
+# Extracting closing prices
+closing_prices = stock_data['Adj Close'].values
+
+# Extracting news headlines for sentiment analysis (for demonstration purposes)
+stock_data['News_Headlines'] = ["Your News Headline for each day"] * len(stock_data)
+
+# Perform sentiment analysis on news headlines
+sia = SentimentIntensityAnalyzer()
+stock_data['Sentiment_Score'] = stock_data['News_Headlines'].apply(lambda x: sia.polarity_scores(x)['compound'])
+
+# Parameters for Jump Diffusion Model
+S0 = closing_prices[0]  # Initial stock price
+mu = np.mean(np.diff(closing_prices) / closing_prices[:-1])  # Drift
+sigma = np.std(np.diff(closing_prices) / closing_prices[:-1])  # Volatility
+lambda_ = 0.1  # Jump intensity
+jump_mean = 0.0  # Jump mean
+jump_std = 0.1  # Jump standard deviation
+T = 10  # Time horizon (days)
+dt = 1  # Time step
+num_simulations = 100  # Number of simulations
+
+# Additional parameters for sentiment analysis risk factor
+sentiment_weight = 0.001  # Adjust the weight based on the impact you want sentiment to have
+
+# Additional parameters for external risk factors
+external_risk_factor = np.random.randn(num_simulations, len(stock_data)) * 0.1  # Example external risk factors
+external_risk_factor_weight = 0.005  # Adjust the weight based on the impact you want external factors to have
+
+# Additional parameters for event-driven jumps
+event_jump_factor = 0.05  # Jump factor for event-driven jumps
+
+# Run the Jump Diffusion Model with sentiment analysis, external risk factors, and event-driven jumps
+t, S = jump_diffusion_model(S0, mu, sigma, lambda_, jump_mean, jump_std, T, dt, num_simulations, stock_data['Sentiment_Score'], external_risk_factor)
+
+# Calculate the percentage of values above 70.05
+percentage_above_threshold = np.mean(S[:, -1] > 70.05) * 100
+print(f"Percentage of values above 70.05: {percentage_above_threshold:.2f}%")
+
+# Plotting the Jump Diffusion Model with enhancements and annotations
+plt.figure(figsize=(10, 6))
+plt.plot(t, S.T, color='blue', alpha=0.1)
+plt.title('Enhanced Jump Diffusion Model for MRNA Stock with Sentiment Analysis, External Factors, and Event-Driven Jumps')
+plt.xlabel('Time (days)')
+plt.ylabel('Stock Price')
+plt.xticks(color='white')
+plt.yticks(color='white')
+plt.grid(color='white', linestyle='--', linewidth=0.5)
+
+# Annotate specific points with stock prices
+annotate_points = [5, 15, 25]  # Example points for annotation
+for point in annotate_points:
+    indices = np.where(t >= point)[0]
+    if len(indices) > 0:
+        index = indices[0]
+        stock_price_at_point = S[:, index]
+        plt.annotate(f'{stock_price_at_point.mean():.2f}', (point, stock_price_at_point.mean()), color='white',
+                     textcoords="offset points", xytext=(0, 10), ha='center')
+    else:
+        print(f"No valid index found for annotation point {point}.")
+
+plt.show()
